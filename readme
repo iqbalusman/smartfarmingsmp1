@@ -1,0 +1,69 @@
+horizons-export-ffef964d-7df4-4c21-9e5a-f90fe9aa68cb/
+│
+├── dist/
+├── node_modules/
+├── plugins/
+├── public/
+├── src/
+│   ├── components/
+│   │   ├── ui/
+│   │   ├── DataLogger.jsx
+│   │   ├── DataLoggerIrigasi.jsx
+│   │   ├── dropdown.jsx
+│   │   ├── Navbar.jsx
+│   │   └── SensorChart.jsx
+│   ├── contexts/
+│   │   └── SupabaseAuthContext.jsx
+│   ├── lib/
+│   ├── pages/
+│   │   ├── Berandairigasi.jsx
+│   │   ├── ConnectionGuide.jsx
+│   │   ├── Contact.jsx
+│   │   ├── hidroponik.jsx
+│   │   ├── Home.jsx
+│   │   ├── Irigasitetes.jsx
+│   │   └── Monitoring.jsx
+│   ├── App.jsx
+│   ├── index.css
+│   └── main.jsx
+├── tools/
+│   └── generate-llms.js
+├── .gitignore
+├── .nvmrc
+├── index.html
+├── package-lock.json
+├── package.json
+├── postcss.config.js
+├── readme
+├── tailwind.config.js
+├── vercel.json
+└── vite.config.js
+
+
+File yang PASTI kamu edit:
+1. src/lib/fetchSheetData.js
+Untuk parsing dan mengambil data dari Google Sheets (GViz API).
+
+Update agar parsing-nya robust, handle koma/titik dsb.
+
+2. src/hooks/useSpreadsheet.js
+Untuk custom hook mengambil data spreadsheet.
+
+Update jika ingin gunakan pattern hook, atau bisa lewati jika data di-fetch langsung di page.
+
+3. src/pages/Irigasitetes.jsx
+WAJIB edit di sini!
+
+Logic utama mapping dari hasil fetch ke struktur data, parsing waktu & angka, serta passing data ke tabel dan grafik.
+
+4. src/components/DataLoggerIrigasi.jsx
+WAJIB edit di sini!
+
+Logic render tabel (header, row, parsing kolom, formatting tanggal), sesuai hasil mapping yang benar.
+
+5. (Optional) src/components/SensorChartIrigasi.jsx
+Jika chart-mu juga pakai data Google Sheets, pastikan data yang dilempar sesuai dengan kolom mapping yang sudah benar.
+
+Tapi kalau sudah jalan, tidak wajib edit.
+
+
