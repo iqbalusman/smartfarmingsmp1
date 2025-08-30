@@ -8,7 +8,7 @@
  */
 
 const spreadsheetId = "1Y_LrC7kzvRlMPthtowIohP3ubRVGYDLoZEvjR2YPt1g"; // Ganti jika sheet kamu berubah
-const gid = 0; // Sheet1, ganti jika sheet lain
+const gid = 1; // Sheet1, ganti jika sheet lain
 
 export async function fetchSheetData() {
   const url = `https://docs.google.com/spreadsheets/d/${spreadsheetId}/gviz/tq?tqx=out:json&gid=${gid}`;
