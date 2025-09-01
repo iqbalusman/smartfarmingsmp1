@@ -35,12 +35,18 @@ const DataLoggerIrigasi = ({ data, isLive, loading }) => {
     ...(isLive ? [{ label: "Status", key: "status" }] : []),
   ];
 
-  // Search hanya di kolom waktu
+  // === Filter data hanya untuk hari ini ===
+  const today = new Date();
+  today.setHours(0, 0, 0, 0); // jam 00:00 hari ini
+  const tomorrow = new Date(today);
+  tomorrow.setDate(today.getDate() + 1); // jam 00:00 besok
+
   const filteredData = data.filter(item => {
-    const waktu = formatTanggal(item.timestamp);
+    const waktu = new Date(item.timestamp);
     return (
-      searchTerm === '' ||
-      waktu.toLowerCase().includes(searchTerm.toLowerCase())
+      waktu >= today &&
+      waktu < tomorrow &&
+      (searchTerm === '' || formatTanggal(item.timestamp).toLowerCase().includes(searchTerm.toLowerCase()))
     );
   });
 
@@ -88,6 +94,9 @@ const DataLoggerIrigasi = ({ data, isLive, loading }) => {
           <h2 className="text-2xl font-bold text-gray-800">Data Logger Irigasi Tetes</h2>
           <p className="text-gray-600 text-sm md:text-base">
             Riwayat sensor: <strong>Suhu & Kelembaban (SHT20)</strong>, <strong>pH & Kelembaban Tanah</strong>, <strong>Flow Meter</strong>
+          </p>
+          <p className="text-gray-500 text-xs">
+            Menampilkan data otomatis dari <strong>{today.toLocaleDateString("id-ID")}</strong>
           </p>
         </div>
       </div>
@@ -169,7 +178,7 @@ const DataLoggerIrigasi = ({ data, isLive, loading }) => {
           {totalPages > 1 && (
             <div className="flex flex-col md:flex-row items-center justify-between mt-6 gap-4">
               <div className="text-sm text-gray-600">
-                Menampilkan {startIndex + 1}-{Math.min(endIndex, filteredData.length)} dari {filteredData.length} data
+                Menampilkan {startIndex + 1}-{Math.min(endIndex, filteredData.length)} dari {filteredData.length} data hari ini
               </div>
               <div className="flex items-center space-x-2">
                 <Button
@@ -199,7 +208,7 @@ const DataLoggerIrigasi = ({ data, isLive, loading }) => {
         <div className="text-center py-12">
           <Database className="h-16 w-16 text-gray-400 mx-auto mb-4" />
           <p className="text-gray-500 text-lg">
-            {data.length === 0 ? 'Belum ada data' : 'Tidak ada data yang sesuai filter'}
+            {data.length === 0 ? 'Belum ada data hari ini' : 'Tidak ada data yang sesuai filter'}
           </p>
           <p className="text-gray-400 text-sm">
             {isLive ? 'Pastikan perangkat Anda mengirim data.' : 'Data simulasi akan muncul di sini.'}

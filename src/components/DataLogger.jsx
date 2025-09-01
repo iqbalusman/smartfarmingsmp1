@@ -1,43 +1,48 @@
-import React, { useState } from 'react';
+import React, { useState, useEffect } from 'react';
 import { motion } from 'framer-motion';
-import {
-  Database,
-  Calendar,
-  Search,
-  ChevronLeft,
-  ChevronRight,
-  FileText
-} from 'lucide-react';
+import { Database, Calendar, Search, ChevronLeft, ChevronRight, FileText } from 'lucide-react';
 import { Button } from '@/components/ui/button';
 
-// Format waktu (ISO atau string ke lokal)
+// Format tanggal
 function formatTanggal(str) {
   if (!str) return "-";
-  // Bersihkan jika ada embel-embel "TDate..." di belakang (bug dari spreadsheet)
   const cleaned = str.split("TDate")[0];
   try {
     const t = new Date(cleaned);
     if (isNaN(t)) return cleaned;
-    // Format: 6/8/2025, 22.36.01
-    return `${t.getDate()}/${t.getMonth()+1}/${t.getFullYear()}, ${t.getHours().toString().padStart(2,"0")}.${t.getMinutes().toString().padStart(2,"0")}.${t.getSeconds().toString().padStart(2,"0")}`;
+    return `${t.getDate()}/${t.getMonth() + 1}/${t.getFullYear()}, ${t.getHours().toString().padStart(2, "0")}.${t.getMinutes().toString().padStart(2, "0")}.${t.getSeconds().toString().padStart(2, "0")}`;
   } catch {
     return cleaned;
   }
 }
-const DataLogger = ({ data = [], isLive = false, loading = false }) => {
+
+const DataLogger = ({ sheetId, sheetName }) => {
+  const [data, setData] = useState([]);
+  const [loading, setLoading] = useState(true);
   const [currentPage, setCurrentPage] = useState(1);
   const [searchTerm, setSearchTerm] = useState('');
   const itemsPerPage = 10;
 
-  // Header tabel (urutan sesuai parameter data)
-  const header = [
-    { label: "Waktu", key: "timestamp" },
-    { label: "Suhu (°C)", key: "suhu" },
-    { label: "pH", key: "pH" },
-    { label: "FlowL/M", key: "flowRate" }
-  ];
+  // Ambil data dari Apps Script (3 hari terakhir)
+  useEffect(() => {
+    async function fetchData() {
+      setLoading(true);
+      try {
+        const res = await fetch(
+          `https://script.google.com/macros/s/YOUR_DEPLOY_ID/exec?sheetid=${sheetId}&sheetname=${sheetName}&days=3`
+        );
+        const json = await res.json();
+        setData(json);
+      } catch (err) {
+        console.error("Fetch error:", err);
+      } finally {
+        setLoading(false);
+      }
+    }
+    fetchData();
+  }, [sheetId, sheetName]);
 
-  // Search (di waktu)
+  // Filter + search
   const filteredData = data.filter(item => {
     const waktu = formatTanggal(item.timestamp);
     return (
@@ -76,7 +81,7 @@ const DataLogger = ({ data = [], isLive = false, loading = false }) => {
         <div>
           <h2 className="text-2xl font-bold text-gray-800">Data Logger Hidroponik</h2>
           <p className="text-gray-600 text-sm md:text-base">
-            Riwayat data: <strong>Suhu</strong>, <strong>pH</strong>, <strong>Flow L/M</strong>
+            Riwayat data: <strong>Suhu</strong>, <strong>pH</strong>, <strong>Flow L/M</strong> (3 hari terakhir)
           </p>
         </div>
       </div>
@@ -102,13 +107,10 @@ const DataLogger = ({ data = [], isLive = false, loading = false }) => {
             <table className="w-full text-sm md:text-base text-center">
               <thead>
                 <tr className="border-b border-gray-200 bg-green-50">
-                  {header.map(h => (
-                    <th key={h.key} className="py-3 px-4">
-                      {h.key === "timestamp"
-                        ? <><Calendar className="inline h-4 w-4 mr-1" />Waktu</>
-                        : h.label}
-                    </th>
-                  ))}
+                  <th className="py-3 px-4"><Calendar className="inline h-4 w-4 mr-1" />Waktu</th>
+                  <th className="py-3 px-4">Suhu (°C)</th>
+                  <th className="py-3 px-4">pH</th>
+                  <th className="py-3 px-4">FlowL/M</th>
                 </tr>
               </thead>
               <tbody>
@@ -120,19 +122,10 @@ const DataLogger = ({ data = [], isLive = false, loading = false }) => {
                     transition={{ duration: 0.3, delay: index * 0.04 }}
                     className="border-b border-gray-100 hover:bg-green-50"
                   >
-                    {header.map(h => (
-                      <td key={h.key} className="py-3 px-4 font-semibold">
-                        {h.key === "timestamp"
-                          ? formatTanggal(row.timestamp)
-                          : row[h.key] !== undefined && row[h.key] !== null
-                            ? (["pH", "flowRate"].includes(h.key)
-                                ? Number(row[h.key]).toFixed(2)
-                                : typeof row[h.key] === "number"
-                                  ? Number(row[h.key]).toFixed(1)
-                                  : row[h.key])
-                            : '-'}
-                      </td>
-                    ))}
+                    <td className="py-3 px-4 font-semibold">{formatTanggal(row.timestamp)}</td>
+                    <td className="py-3 px-4 font-semibold">{Number(row.suhu || 0).toFixed(1)}</td>
+                    <td className="py-3 px-4 font-semibold">{Number(row.pH || 0).toFixed(2)}</td>
+                    <td className="py-3 px-4 font-semibold">{Number(row.flowRate || 0).toFixed(2)}</td>
                   </motion.tr>
                 ))}
               </tbody>
@@ -146,23 +139,13 @@ const DataLogger = ({ data = [], isLive = false, loading = false }) => {
                 Menampilkan {startIndex + 1}-{Math.min(endIndex, filteredData.length)} dari {filteredData.length} data
               </div>
               <div className="flex items-center space-x-2">
-                <Button
-                  variant="outline"
-                  size="sm"
-                  onClick={() => setCurrentPage(p => Math.max(p - 1, 1))}
-                  disabled={currentPage === 1}
-                >
+                <Button variant="outline" size="sm" onClick={() => setCurrentPage(p => Math.max(p - 1, 1))} disabled={currentPage === 1}>
                   <ChevronLeft className="h-4 w-4" />
                 </Button>
                 <span className="text-sm font-medium text-gray-700">
                   Hal {currentPage} dari {totalPages}
                 </span>
-                <Button
-                  variant="outline"
-                  size="sm"
-                  onClick={() => setCurrentPage(p => Math.min(p + 1, totalPages))}
-                  disabled={currentPage === totalPages}
-                >
+                <Button variant="outline" size="sm" onClick={() => setCurrentPage(p => Math.min(p + 1, totalPages))} disabled={currentPage === totalPages}>
                   <ChevronRight className="h-4 w-4" />
                 </Button>
               </div>
@@ -174,9 +157,6 @@ const DataLogger = ({ data = [], isLive = false, loading = false }) => {
           <Database className="h-16 w-16 text-gray-400 mx-auto mb-4" />
           <p className="text-gray-500 text-lg">
             {data.length === 0 ? 'Belum ada data' : 'Tidak ada data yang sesuai filter'}
-          </p>
-          <p className="text-gray-400 text-sm">
-            {isLive ? 'Pastikan perangkat Anda mengirim data.' : 'Data simulasi akan muncul di sini.'}
           </p>
         </div>
       )}
