@@ -1,9 +1,15 @@
-// src/pages/Hidroponik.jsx
-import React, { useEffect, useMemo, useState } from 'react';
+import React, { useEffect, useState } from 'react';
 import { Helmet } from 'react-helmet';
 import { motion } from 'framer-motion';
 import {
-  Thermometer, Droplets, Gauge, Wifi, WifiOff, Download, Activity, CheckCircle,
+  Thermometer,
+  Droplets,
+  Gauge,
+  Wifi,
+  WifiOff,
+  Download,
+  Activity,
+  CheckCircle,
 } from 'lucide-react';
 import { Button } from '@/components/ui/button';
 import { useToast } from '@/components/ui/use-toast';
@@ -12,9 +18,9 @@ import DataLogger from '@/components/DataLogger';
 import Navbar from '@/components/Navbar';
 import useSpreadsheetHidroponik from "@/hooks/useSpreadsheetHidroponik";
 
-// GANTI SESUAI SHEET HIDROPONIK KAMU
-const SPREADSHEET_ID = "1rL0v_f4yI4cWr6g0uTwHQSqG-ASnI4cnYw0WArDbDx";
-const SHEET_GID = 1;
+// GANTI ID DAN GID SESUAI SHEET HIDROPONIK KAMU!
+const SPREADSHEET_ID = "1rL0v_f4yI4cWr6g0uTwHQSqG-ASnI4cnYw0WArDbDxE";
+const SHEET_GID = 1; // Tab pertama atau sesuai
 
 function parseNumber(val) {
   if (typeof val === "string") {
@@ -59,91 +65,148 @@ const SensorStatusBar = () => {
 };
 
 const Hidroponik = () => {
-  const [isLive, setIsLive] = useState(true); // langsung live
+  const [isLive, setIsLive] = useState(false);
   const [dummyData, setDummyData] = useState([]);
+  const [reloadFlag, setReloadFlag] = useState(0); // Untuk trigger reload
+  const [isInitialLoad, setIsInitialLoad] = useState(true); // Untuk loading pertama saja
   const { toast } = useToast();
 
-  // Auto-update dari sheet (tanpa loading, polling 2s, pause saat tab hidden, terbaru di atas)
-  const { data: sheetData /* loading */ } = useSpreadsheetHidroponik(
+  // Polling reload saat live (interval 5 detik)
+  useEffect(() => {
+    let interval;
+    if (isLive) {
+      setIsInitialLoad(true);
+      interval = setInterval(() => {
+        setReloadFlag(f => f + 1);
+      }, 5000); // 5 detik
+    }
+    return () => clearInterval(interval);
+  }, [isLive]);
+
+  // Data dari Sheet (live mode)
+  const { data: sheetData, loading } = useSpreadsheetHidroponik(
     SPREADSHEET_ID,
     SHEET_GID,
-    { intervalMs: 2000, pauseOnHidden: true, order: "desc" }
+    reloadFlag
   );
 
-  // Data akhir untuk UI
-  const mappedData = useMemo(() => {
-    const src = isLive ? sheetData : dummyData;
-    return src.map((row) => ({
-      timestamp: parseTimestamp(row),
-      suhu: parseNumber(row["Suhu"]),
-      flowRate: parseNumber(row["FlowL/M"]),
-      pH: parseNumber(row["pH"]),
-    }));
-  }, [isLive, sheetData, dummyData]);
+  // Hilangkan loading setelah load awal selesai
+  useEffect(() => {
+    if (isLive && !loading) setIsInitialLoad(false);
+    if (!isLive) setIsInitialLoad(false);
+  }, [isLive, loading]);
 
-  // Dummy mode (kalau user matikan live)
+  // DATA AKHIR: diambil dari sheet jika live, dummy jika tidak
+  const mappedData = isLive
+    ? sheetData.map(row => ({
+        timestamp: parseTimestamp(row),
+        suhu: parseNumber(row["Suhu"]),
+        flowRate: parseNumber(row["FlowL/M"]),
+        pH: parseNumber(row["pH"]),
+      }))
+    : dummyData;
+
+  // Dummy generator (simulasi)
   useEffect(() => {
     if (!isLive) {
-      const id = setInterval(() => {
-        setDummyData((prev) => [
+      const interval = setInterval(() => {
+        setDummyData(prev => [
+          ...prev,
           {
             timestamp: new Date().toISOString(),
-            suhu: 20 + Math.random() * 10,
-            flowRate: 1 + Math.random() * 3,
-            pH: 5.5 + Math.random() * 2,
-          },
-          ...prev, // terbaru di atas
+            suhu: 5 + Math.random() * 10, // 20-30°C
+            flowRate: 1 + Math.random() * 3, // 1-4 L/min
+            pH: 5.5 + Math.random() * 2 // 5.5-7.5
+          }
         ]);
       }, 3000);
-      return () => clearInterval(id);
+      return () => clearInterval(interval);
     } else {
-      setDummyData([]);
+      setDummyData([]); // Kosongkan data dummy saat live
     }
   }, [isLive]);
 
-  // Download CSV
+  // Download CSV sesuai kolom hidroponik
   const handleDownload = () => {
-    if (!mappedData.length) {
-      toast({ title: 'Gagal', description: 'Tidak ada data untuk diunduh', variant: 'destructive' });
+    if (mappedData.length === 0) {
+      toast({
+        title: 'Gagal',
+        description: 'Tidak ada data untuk diunduh',
+        variant: 'destructive'
+      });
       return;
     }
-    const csv = [
-      ['Timestamp', 'Suhu (°C)', 'FlowL/M', 'pH'],
-      ...mappedData.map(d => [d.timestamp, d.suhu?.toFixed(1), d.flowRate?.toFixed(2), d.pH?.toFixed(2)])
-    ].map(r => r.join(',')).join('\n');
 
-    const blob = new Blob([csv], { type: 'text/csv;charset=utf-8;' });
+    const csvData = [
+      ['Timestamp', 'Suhu (°C)', 'FlowL/M', 'pH'],
+      ...mappedData.map((item) => [
+        item.timestamp,
+        item.suhu?.toFixed(1),
+        item.flowRate?.toFixed(2),
+        item.pH?.toFixed(2)
+      ])
+    ]
+      .map((row) => row.join(','))
+      .join('\n');
+
+    const blob = new Blob([csvData], { type: 'text/csv;charset=utf-8;' });
     const url = URL.createObjectURL(blob);
-    const a = document.createElement('a'); a.href = url; a.download = `hidroponik_data_${Date.now()}.csv`; a.click();
+    const link = document.createElement('a');
+    link.href = url;
+    link.setAttribute('download', `hidroponik_data_${Date.now()}.csv`);
+    document.body.appendChild(link);
+    link.click();
+    document.body.removeChild(link);
   };
 
   return (
     <>
-      <header><Navbar /></header>
-      <Helmet><title>Monitoring Hidroponik</title></Helmet>
-
+      <header>
+        <Navbar />
+      </header>
+      <Helmet>
+        <title>Monitoring Hidroponik</title>
+      </Helmet>
       <section className="py-20 bg-gradient-to-br from-green-50 via-white to-green-100 min-h-screen">
         <div className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8">
           {/* Header */}
-          <motion.div initial={{ opacity: 0, y: -20 }} animate={{ opacity: 1, y: 0 }} transition={{ duration: 0.8 }} className="mb-8 text-center">
+          <motion.div
+            initial={{ opacity: 0, y: -20 }}
+            animate={{ opacity: 1, y: 0 }}
+            transition={{ duration: 0.8 }}
+            className="mb-8 text-center"
+          >
             <h1 className="text-4xl font-extrabold text-green-700 flex justify-center items-center gap-3">
               <span className="text-5xl">🌱</span> Monitoring Hidroponik
             </h1>
-            <p className="text-gray-700 text-lg mt-2">Data yang ditampilkan adalah data Real-Time</p>
-            <p className="text-green-700 text-base mt-2">Tanaman: <span className="font-bold">Pakcoy</span> | Fase: <span className="font-bold">Vegetatif</span></p>
+            <p className="text-gray-700 text-lg mt-2">
+              Data yang ditampilkan adalah data Real-Time
+            </p>
+            <p className="text-green-700 text-base mt-2">
+              Tanaman: <span className="font-bold">Pakcoy</span> | Fase:{' '}
+              <span className="font-bold">Vegetatif</span>
+            </p>
           </motion.div>
 
-          {/* Status bar */}
-          <motion.div initial={{ opacity: 0, y: -20 }} animate={{ opacity: 1, y: 0 }} transition={{ duration: 0.6 }}
-            className="flex flex-wrap justify-between items-center bg-white shadow rounded-2xl p-4 mb-8">
+          {/* Status Bar */}
+          <motion.div
+            initial={{ opacity: 0, y: -20 }}
+            animate={{ opacity: 1, y: 0 }}
+            transition={{ duration: 0.6 }}
+            className="flex flex-wrap justify-between items-center bg-white shadow rounded-2xl p-4 mb-8"
+          >
             <div className="flex items-center space-x-3">
-              {isLive ? <Wifi className="text-green-600 h-6 w-6" /> : <WifiOff className="text-red-600 h-6 w-6" />}
+              {isLive ? (
+                <Wifi className="text-green-600 h-6 w-6" />
+              ) : (
+                <WifiOff className="text-red-600 h-6 w-6" />
+              )}
               <span className="text-sm font-medium">
-                {isLive ? 'Mode Live: Spreadsheet' : 'Mode Simulasi: Data Dummy'}
+                {isLive ? 'Mode Live: ESP32 Terhubung' : 'Mode Simulasi: Data Dummy'}
               </span>
             </div>
             <div className="flex space-x-3">
-              <Button variant="outline" onClick={() => setIsLive(v => !v)}>
+              <Button variant="outline" onClick={() => setIsLive(!isLive)}>
                 {isLive ? 'Matikan Live' : 'Aktifkan Live'}
               </Button>
               <Button onClick={handleDownload}>
@@ -152,14 +215,16 @@ const Hidroponik = () => {
             </div>
           </motion.div>
 
+          {/* Sensor Status Bar (3 items) */}
           <SensorStatusBar />
 
-          {/* Chart: jika butuh urut waktu (naik), kirim reverse */}
-          <SensorChart data={[...mappedData].reverse()} isLive={isLive} />
+          {/* Sensor Chart */}
+          <SensorChart data={mappedData} isLive={isLive} loading={isInitialLoad && loading && isLive} avgMode="last" />
 
+
+          {/* Data Logger */}
           <div className="mt-10">
-            {/* Logger: terbaru di atas */}
-            <DataLogger data={mappedData} isLive={isLive} />
+            <DataLogger data={mappedData} isLive={isLive} loading={isInitialLoad && loading && isLive} />
           </div>
         </div>
       </section>
