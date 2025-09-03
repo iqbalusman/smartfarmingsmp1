@@ -1,16 +1,7 @@
 import React, { useEffect, useState } from 'react';
 import { Helmet } from 'react-helmet';
 import { motion } from 'framer-motion';
-import {
-  Thermometer,
-  Droplets,
-  Gauge,
-  Wifi,
-  WifiOff,
-  Download,
-  Activity,
-  CheckCircle,
-} from 'lucide-react';
+import { Thermometer, Droplets, Wifi, WifiOff, Download, Activity, CheckCircle } from 'lucide-react';
 import { Button } from '@/components/ui/button';
 import { useToast } from '@/components/ui/use-toast';
 import SensorChart from '@/components/SensorChart';
@@ -18,27 +9,16 @@ import DataLogger from '@/components/DataLogger';
 import Navbar from '@/components/Navbar';
 import useSpreadsheetHidroponik from "@/hooks/useSpreadsheetHidroponik";
 
-// GANTI ID DAN GID SESUAI SHEET HIDROPONIK KAMU!
-const SPREADSHEET_ID = "1rL0v_f4yI4cWr6g0uTwHQSqG-ASnI4cnYw0WArDbDxE";
-const SHEET_GID = 1; // Tab pertama atau sesuai
+// ✅ pakai NAMA TAB, bukan ID/GID
+const SHEET_NAME = "Sheet1";
 
-function parseNumber(val) {
-  if (typeof val === "string") {
-    const cleaned = val.replace(/[^0-9.,-]/g, "").replace(",", ".");
-    const parsed = parseFloat(cleaned);
-    return isNaN(parsed) ? 0 : parsed;
-  }
-  return typeof val === "number" ? val : 0;
-}
+// parser numerik AMAN untuk chart (tanpa fallback 0)
+const toNum = (v) => {
+  if (v === undefined || v === null) return null;
+  const n = parseFloat(String(v).replace(',', '.'));
+  return Number.isFinite(n) ? n : null;
+};
 
-function parseTimestamp(row) {
-  if (row["Timestamp (UTC)"] && row["Waktu (WIB)"]) {
-    return `${row["Timestamp (UTC)"]}T${row["Waktu (WIB)"]}`;
-  }
-  return row["Timestamp (UTC)"] || row["Waktu (WIB)"] || new Date().toISOString();
-}
-
-// === SensorStatusBar (3 items) ===
 const SensorStatusBar = () => {
   const sensors = [
     { name: "Suhu", icon: Thermometer, border: "border-red-300", text: "text-red-500" },
@@ -67,160 +47,123 @@ const SensorStatusBar = () => {
 const Hidroponik = () => {
   const [isLive, setIsLive] = useState(false);
   const [dummyData, setDummyData] = useState([]);
-  const [reloadFlag, setReloadFlag] = useState(0); // Untuk trigger reload
-  const [isInitialLoad, setIsInitialLoad] = useState(true); // Untuk loading pertama saja
+  const [reloadFlag, setReloadFlag] = useState(0);
+  const [isInitialLoad, setIsInitialLoad] = useState(true);
   const { toast } = useToast();
 
-  // Polling reload saat live (interval 5 detik)
+  // Polling saat Live
   useEffect(() => {
-    let interval;
+    let id;
     if (isLive) {
       setIsInitialLoad(true);
-      interval = setInterval(() => {
-        setReloadFlag(f => f + 1);
-      }, 5000); // 5 detik
+      id = setInterval(() => setReloadFlag((f) => f + 1), 5000);
     }
-    return () => clearInterval(interval);
+    return () => clearInterval(id);
   }, [isLive]);
 
-  // Data dari Sheet (live mode)
-  const { data: sheetData, loading } = useSpreadsheetHidroponik(
-    SPREADSHEET_ID,
-    SHEET_GID,
-    reloadFlag
-  );
+  // ✅ ambil data by NAMA SHEET
+  const { data: sheetRows, loading } = useSpreadsheetHidroponik(SHEET_NAME, reloadFlag);
 
-  // Hilangkan loading setelah load awal selesai
+  // Setelah load awal, matikan spinner
   useEffect(() => {
     if (isLive && !loading) setIsInitialLoad(false);
     if (!isLive) setIsInitialLoad(false);
   }, [isLive, loading]);
 
-  // DATA AKHIR: diambil dari sheet jika live, dummy jika tidak
-  const mappedData = isLive
-    ? sheetData.map(row => ({
-        timestamp: parseTimestamp(row),
-        suhu: parseNumber(row["Suhu"]),
-        flowRate: parseNumber(row["FlowL/M"]),
-        pH: parseNumber(row["pH"]),
-      }))
-    : dummyData;
+  // ✅ Data live langsung pakai kunci baku dari fetch: {timestamp, pH, suhu, flowRate}
+  // Untuk chart, ubah ke number aman tanpa fallback 0
+  const liveData = sheetRows.map((r) => ({
+    timestamp: r.timestamp,
+    suhu: toNum(r.suhu),
+    flowRate: toNum(r.flowRate),
+    pH: toNum(r.pH),
+  }));
 
-  // Dummy generator (simulasi)
+  const mappedData = isLive ? liveData : dummyData;
+
+  // Dummy mode (simulasi)
   useEffect(() => {
     if (!isLive) {
-      const interval = setInterval(() => {
-        setDummyData(prev => [
+      const id = setInterval(() => {
+        setDummyData((prev) => [
           ...prev,
           {
             timestamp: new Date().toISOString(),
-            suhu: 5 + Math.random() * 10, // 20-30°C
-            flowRate: 1 + Math.random() * 3, // 1-4 L/min
-            pH: 5.5 + Math.random() * 2 // 5.5-7.5
-          }
+            suhu: 25 + Math.random() * 3,   // 25–28 °C
+            flowRate: 1.9 + Math.random() * 0.2, // 1.9–2.1 L/m
+            pH: 4.9 + Math.random() * 0.3, // 4.9–5.2
+          },
         ]);
       }, 3000);
-      return () => clearInterval(interval);
+      return () => clearInterval(id);
     } else {
-      setDummyData([]); // Kosongkan data dummy saat live
+      setDummyData([]);
     }
   }, [isLive]);
 
-  // Download CSV sesuai kolom hidroponik
   const handleDownload = () => {
     if (mappedData.length === 0) {
-      toast({
-        title: 'Gagal',
-        description: 'Tidak ada data untuk diunduh',
-        variant: 'destructive'
-      });
+      toast({ title: 'Gagal', description: 'Tidak ada data untuk diunduh', variant: 'destructive' });
       return;
     }
-
-    const csvData = [
+    const csv = [
       ['Timestamp', 'Suhu (°C)', 'FlowL/M', 'pH'],
-      ...mappedData.map((item) => [
-        item.timestamp,
-        item.suhu?.toFixed(1),
-        item.flowRate?.toFixed(2),
-        item.pH?.toFixed(2)
-      ])
-    ]
-      .map((row) => row.join(','))
-      .join('\n');
+      ...mappedData.map((d) => [
+        d.timestamp,
+        d.suhu == null ? '' : d.suhu.toFixed(2),
+        d.flowRate == null ? '' : d.flowRate.toFixed(2),
+        d.pH == null ? '' : d.pH.toFixed(2),
+      ]),
+    ].map((r) => r.join(',')).join('\n');
 
-    const blob = new Blob([csvData], { type: 'text/csv;charset=utf-8;' });
+    const blob = new Blob([csv], { type: 'text/csv;charset=utf-8;' });
     const url = URL.createObjectURL(blob);
-    const link = document.createElement('a');
-    link.href = url;
-    link.setAttribute('download', `hidroponik_data_${Date.now()}.csv`);
-    document.body.appendChild(link);
-    link.click();
-    document.body.removeChild(link);
+    const a = document.createElement('a');
+    a.href = url;
+    a.setAttribute('download', `hidroponik_data_${Date.now()}.csv`);
+    document.body.appendChild(a);
+    a.click();
+    document.body.removeChild(a);
   };
 
   return (
     <>
-      <header>
-        <Navbar />
-      </header>
-      <Helmet>
-        <title>Monitoring Hidroponik</title>
-      </Helmet>
+      <header><Navbar /></header>
+      <Helmet><title>Monitoring Hidroponik</title></Helmet>
+
       <section className="py-20 bg-gradient-to-br from-green-50 via-white to-green-100 min-h-screen">
         <div className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8">
-          {/* Header */}
-          <motion.div
-            initial={{ opacity: 0, y: -20 }}
-            animate={{ opacity: 1, y: 0 }}
-            transition={{ duration: 0.8 }}
-            className="mb-8 text-center"
-          >
+          {/* Title */}
+          <motion.div initial={{ opacity: 0, y: -20 }} animate={{ opacity: 1, y: 0 }} transition={{ duration: 0.8 }} className="mb-8 text-center">
             <h1 className="text-4xl font-extrabold text-green-700 flex justify-center items-center gap-3">
               <span className="text-5xl">🌱</span> Monitoring Hidroponik
             </h1>
-            <p className="text-gray-700 text-lg mt-2">
-              Data yang ditampilkan adalah data Real-Time
-            </p>
+            <p className="text-gray-700 text-lg mt-2">Data yang ditampilkan adalah data Real-Time</p>
             <p className="text-green-700 text-base mt-2">
-              Tanaman: <span className="font-bold">Pakcoy</span> | Fase:{' '}
-              <span className="font-bold">Vegetatif</span>
+              Tanaman: <span className="font-bold">Pakcoy</span> | Fase: <span className="font-bold">Vegetatif</span>
             </p>
           </motion.div>
 
           {/* Status Bar */}
-          <motion.div
-            initial={{ opacity: 0, y: -20 }}
-            animate={{ opacity: 1, y: 0 }}
-            transition={{ duration: 0.6 }}
-            className="flex flex-wrap justify-between items-center bg-white shadow rounded-2xl p-4 mb-8"
-          >
+          <motion.div initial={{ opacity: 0, y: -20 }} animate={{ opacity: 1, y: 0 }} transition={{ duration: 0.6 }}
+            className="flex flex-wrap justify-between items-center bg-white shadow rounded-2xl p-4 mb-8">
             <div className="flex items-center space-x-3">
-              {isLive ? (
-                <Wifi className="text-green-600 h-6 w-6" />
-              ) : (
-                <WifiOff className="text-red-600 h-6 w-6" />
-              )}
-              <span className="text-sm font-medium">
-                {isLive ? 'Mode Live: ESP32 Terhubung' : 'Mode Simulasi: Data Dummy'}
-              </span>
+              {isLive ? <Wifi className="text-green-600 h-6 w-6" /> : <WifiOff className="text-red-600 h-6 w-6" />}
+              <span className="text-sm font-medium">{isLive ? 'Mode Live: ESP32 Terhubung' : 'Mode Simulasi: Data Dummy'}</span>
             </div>
             <div className="flex space-x-3">
               <Button variant="outline" onClick={() => setIsLive(!isLive)}>
                 {isLive ? 'Matikan Live' : 'Aktifkan Live'}
               </Button>
-              <Button onClick={handleDownload}>
-                <Download className="h-4 w-4 mr-2" /> Unduh CSV
-              </Button>
+              <Button onClick={handleDownload}><Download className="h-4 w-4 mr-2" /> Unduh CSV</Button>
             </div>
           </motion.div>
 
-          {/* Sensor Status Bar (3 items) */}
+          {/* Sensor Status Bar */}
           <SensorStatusBar />
 
-          {/* Sensor Chart */}
+          {/* Chart */}
           <SensorChart data={mappedData} isLive={isLive} loading={isInitialLoad && loading && isLive} avgMode="last" />
-
 
           {/* Data Logger */}
           <div className="mt-10">
