@@ -12,7 +12,9 @@ const norm = (s) =>
 
 function findIndex(labels, candidates) {
   const want = candidates.map(norm);
-  for (let i = 0; i < labels.length; i++) if (want.includes(norm(labels[i]))) return i;
+  for (let i = 0; i < labels.length; i++) {
+    if (want.includes(norm(labels[i]))) return i;
+  }
   return -1;
 }
 
@@ -22,14 +24,16 @@ export async function fetchSheetDataHidroponik(sheetName = "Sheet1") {
     `?tqx=out:json&sheet=${encodeURIComponent(sheetName)}`;
 
   try {
-    const resp = await fetch(url);
+    const resp = await fetch(url, { cache: "no-store" });
     const text = await resp.text();
+
+    // potong bungkus GViz → JSON murni
     const json = JSON.parse(text.substring(text.indexOf("{"), text.lastIndexOf("}") + 1));
 
     const cols = json.table.cols || [];
     const labels = cols.map((c) => (c.label || "").trim());
 
-    // Ambil value mentah per baris; pakai v ?? f (kalau v null, pakai formatted string)
+    // Ambil nilai sel; pakai v ?? f (kalau v null, gunakan formatted string)
     const rawRows = (json.table.rows || []).map((row) =>
       (row.c || []).map((cell) => {
         if (!cell) return "";
@@ -39,27 +43,32 @@ export async function fetchSheetDataHidroponik(sheetName = "Sheet1") {
       })
     );
 
-    // 1) Index via label (Flow juga dicocokkan ke F1owL/M")
+    // 1) Index via label (Flow juga dicocokkan ke "F1owL/M" yang pakai angka 1)
     const idx = {
       ts:   findIndex(labels, ["timestamp (utc)", "timestamp_utc", "timestamp"]),
       wl:   findIndex(labels, ["waktu (wita)", "waktu (lokal)", "waktulokal", "waktu"]),
       ph:   findIndex(labels, ["pH", "ph"]),
       flow: findIndex(labels, ["flowl/m", 'flowl/m"', "f1owl/m", 'f1owl/m"', "flowrate", "flow", "lpm"]),
-      suhu: -1, // kita tentukan di langkah 2
+      suhu: -1, // akan kita tentukan di langkah 2–5
     };
 
-    // 2) "Kunci" pola header sheet kamu: pH diikuti Suhu di kolom kanan → suhu = ph + 1
+    // 2) Pola header umum: pH diikuti Suhu → suhu = ph + 1
     if (idx.ph >= 0 && idx.ph + 1 < labels.length) {
       idx.suhu = idx.ph + 1;
     }
 
-    // 3) Fallback kalau pH tidak ketemu: cari label "Suhu"
+    // 3) Kalau belum ketemu, cari label yang mirip "Suhu"
     if (idx.suhu < 0) {
       const sIdx = findIndex(labels, ["suhu", "suhu (°c)", "temperature", "temp"]);
       if (sIdx >= 0) idx.suhu = sIdx;
     }
 
-    // 4) Fallback terakhir: kalau ada 5 kolom standar dan ts/wl/ph/flow ketemu, ambil kolom sisa jadi Suhu
+    // 4) Kalau Flow ketemu, coba kolom di kiri Flow
+    if (idx.suhu < 0 && idx.flow > 0) {
+      idx.suhu = idx.flow - 1;
+    }
+
+    // 5) Fallback terakhir: kalau 4 kolom lain sudah ketemu, ambil kolom sisa
     if (idx.suhu < 0 && labels.length >= 5) {
       const used = new Set([idx.ts, idx.wl, idx.ph, idx.flow].filter((i) => i >= 0));
       for (let i = 0; i < labels.length; i++) {
@@ -67,16 +76,16 @@ export async function fetchSheetDataHidroponik(sheetName = "Sheet1") {
       }
     }
 
-    // Bentuk output kunci baku
+    // Bentuk output: {timestamp, pH, suhu, flowRate}
     const out = rawRows.map((vals) => {
       const timestamp =
-        (idx.ts  >= 0 ? vals[idx.ts]  : "") ||
-        (idx.wl  >= 0 ? vals[idx.wl]  : "");
+        (idx.ts >= 0 ? vals[idx.ts] : "") ||
+        (idx.wl >= 0 ? vals[idx.wl] : "");
 
       return {
         timestamp,
         pH:       idx.ph   >= 0 ? vals[idx.ph]   : "",
-        suhu:     idx.suhu >= 0 ? vals[idx.suhu] : "",   // ← Suhu pasti terisi dengan mapping di atas
+        suhu:     idx.suhu >= 0 ? vals[idx.suhu] : "",
         flowRate: idx.flow >= 0 ? vals[idx.flow] : "",
       };
     });

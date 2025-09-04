@@ -10,22 +10,98 @@ import {
 } from 'lucide-react';
 import { Button } from '@/components/ui/button';
 
-// Fungsi bantu untuk format tanggal (ISO atau string)
-function formatTanggal(str) {
-  if (!str) return "-";
-  const t = new Date(str);
-  if (isNaN(t)) return str;
-  return t.toLocaleString("id-ID", { hour12: false });
+// ======================
+//  Zona waktu & Utils
+// ======================
+
+// Spreadsheet diset ke WIB:
+const SPREADSHEET_TZ = 'Asia/Jakarta';
+const SPREADSHEET_TZ_OFFSET_MINUTES = 7 * 60; // WIB = UTC+7
+
+// Parser timestamp dari spreadsheet → Date(UTC) akurat.
+// Menangani: ISO string, Excel serial number, dan "dd/mm/yyyy HH:mm[:ss]" (pemisah : atau .)
+function parseSheetTimestamp(input) {
+  if (input == null) return new Date(NaN);
+  if (input instanceof Date) return input;
+
+  if (typeof input === 'number') {
+    // Epoch ms?
+    if (input > 1e12) return new Date(input);
+    // Excel serial (hari sejak 1899-12-30)
+    const excelEpoch = Date.UTC(1899, 11, 30);
+    return new Date(excelEpoch + input * 86400000);
+  }
+
+  if (typeof input === 'string') {
+    // 1) Coba ISO/RFC
+    const iso = new Date(input);
+    if (!isNaN(iso)) return iso;
+
+    // 2) dd/mm/yyyy HH:mm[:ss]  (contoh: "04/09/2025 1:12:52" atau "04-09-2025 01.12.52")
+    const m = input.match(
+      /(\d{1,2})[\/\-](\d{1,2})[\/\-](\d{2,4})\s+(\d{1,2})[.:](\d{2})(?:[.:](\d{2}))?/
+    );
+    if (m) {
+      let [, DD, MM, YY, hh, mm, ss] = m;
+      const year = YY.length === 2 ? 2000 + parseInt(YY, 10) : parseInt(YY, 10);
+      // Spreadsheet di WIB → konversi ke UTC (kurangi 7 jam)
+      const utcMs = Date.UTC(
+        year,
+        parseInt(MM, 10) - 1,
+        parseInt(DD, 10),
+        parseInt(hh, 10) - (SPREADSHEET_TZ_OFFSET_MINUTES / 60),
+        parseInt(mm, 10),
+        ss ? parseInt(ss, 10) : 0
+      );
+      return new Date(utcMs);
+    }
+  }
+
+  return new Date(NaN);
 }
 
-const DataLoggerIrigasi = ({ data, isLive, loading }) => {
+// Format untuk tampilan sesuai WIB (ikuti yang terlihat di sheet)
+function formatTanggalWIB(dateLike, more = {}) {
+  const d = dateLike instanceof Date ? dateLike : new Date(dateLike);
+  if (isNaN(d)) return '-';
+  return new Intl.DateTimeFormat('id-ID', {
+    timeZone: SPREADSHEET_TZ, // WIB
+    hour12: false,
+    year: 'numeric',
+    month: 'numeric',
+    day: 'numeric',
+    hour: '2-digit',
+    minute: '2-digit',
+    second: '2-digit',
+    ...more,
+  }).format(d);
+}
+
+// Dapatkan batas 00:00–24:00 “hari ini” versi WIB → Date(UTC) untuk pembanding
+function getWibDayBounds(baseDate = new Date()) {
+  const utcMs = baseDate.getTime() + baseDate.getTimezoneOffset() * 60000;
+  const wibMs = utcMs + SPREADSHEET_TZ_OFFSET_MINUTES * 60000; // geser ke WIB
+  const wib00 = new Date(wibMs);
+  wib00.setHours(0, 0, 0, 0);
+  const startUtcMs = wib00.getTime() - SPREADSHEET_TZ_OFFSET_MINUTES * 60000; // balik ke UTC
+  const endUtcMs = startUtcMs + 24 * 60 * 60 * 1000;
+  return { start: new Date(startUtcMs), end: new Date(endUtcMs) };
+}
+
+// Kompatibel dgn pemakaian lama (dipanggil di tabel & search)
+function formatTanggal(str) {
+  const d = parseSheetTimestamp(str);
+  return formatTanggalWIB(d);
+}
+
+const DataLoggerIrigasi = ({ data = [], isLive, loading }) => {
   const [currentPage, setCurrentPage] = useState(1);
   const [searchTerm, setSearchTerm] = useState('');
   const itemsPerPage = 10;
 
   // Urutan header dan mapping key sesuai field hasil mapping di Irigasitetes.jsx
   const header = [
-    { label: "Waktu", key: "timestamp" },
+    { label: "Waktu", key: "timestamp" }, // <- gunakan 'timestamp' numeric/string dari sheet; kalau ada kolom 'Waktu' string, map-kan ke field ini saat fetch.
     { label: "Suhu Tanah (°C)", key: "temperature" },
     { label: "Suhu Udara (°C)", key: "temperatureAir" },
     { label: "Kelembaban Udara (%)", key: "humidity" },
@@ -35,22 +111,25 @@ const DataLoggerIrigasi = ({ data, isLive, loading }) => {
     ...(isLive ? [{ label: "Status", key: "status" }] : []),
   ];
 
-  // === Filter data hanya untuk hari ini ===
-  const today = new Date();
-  today.setHours(0, 0, 0, 0); // jam 00:00 hari ini
-  const tomorrow = new Date(today);
-  tomorrow.setDate(today.getDate() + 1); // jam 00:00 besok
+  // === Filter data hanya untuk hari ini (WIB) ===
+  const { start: todayWibStart, end: todayWibEnd } = getWibDayBounds();
 
   const filteredData = data.filter(item => {
-    const waktu = new Date(item.timestamp);
+    // Jika kamu sudah memetakan kolom 'Waktu' (string) ke field 'timestamp',
+    // formatTanggal(parse) masih aman. Jika 'timestamp' angka serial/ISO tetap aman.
+    const waktu = parseSheetTimestamp(item.timestamp);
     return (
-      waktu >= today &&
-      waktu < tomorrow &&
-      (searchTerm === '' || formatTanggal(item.timestamp).toLowerCase().includes(searchTerm.toLowerCase()))
+      waktu >= todayWibStart &&
+      waktu < todayWibEnd &&
+      (searchTerm === '' ||
+        formatTanggalWIB(waktu).toLowerCase().includes(searchTerm.toLowerCase()))
     );
   });
 
-  const sortedData = [...filteredData].sort((a, b) => new Date(b.timestamp) - new Date(a.timestamp));
+  const sortedData = [...filteredData].sort(
+    (a, b) => parseSheetTimestamp(b.timestamp) - parseSheetTimestamp(a.timestamp)
+  );
+
   const totalPages = Math.max(1, Math.ceil(sortedData.length / itemsPerPage));
   const startIndex = (currentPage - 1) * itemsPerPage;
   const endIndex = startIndex + itemsPerPage;
@@ -68,7 +147,6 @@ const DataLoggerIrigasi = ({ data, isLive, loading }) => {
     }
   };
 
-  // Saat loading
   if (loading) {
     return (
       <div className="text-center py-12">
@@ -77,6 +155,10 @@ const DataLoggerIrigasi = ({ data, isLive, loading }) => {
       </div>
     );
   }
+
+  const todayLabelWIB = formatTanggalWIB(new Date(), {
+    hour: undefined, minute: undefined, second: undefined
+  });
 
   return (
     <motion.div
@@ -96,7 +178,7 @@ const DataLoggerIrigasi = ({ data, isLive, loading }) => {
             Riwayat sensor: <strong>Suhu & Kelembaban (SHT20)</strong>, <strong>pH & Kelembaban Tanah</strong>, <strong>Flow Meter</strong>
           </p>
           <p className="text-gray-500 text-xs">
-            Menampilkan data otomatis dari <strong>{today.toLocaleDateString("id-ID")}</strong>
+            Menampilkan data otomatis dari <strong>{todayLabelWIB}</strong> (WIB)
           </p>
         </div>
       </div>
@@ -107,7 +189,7 @@ const DataLoggerIrigasi = ({ data, isLive, loading }) => {
           <Search className="absolute left-3 top-1/2 transform -translate-y-1/2 h-4 w-4 text-gray-400" />
           <input
             type="text"
-            placeholder="Cari berdasarkan waktu..."
+            placeholder="Cari berdasarkan waktu (format WIB)..."
             value={searchTerm}
             onChange={e => setSearchTerm(e.target.value)}
             className="w-full pl-10 pr-4 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-indigo-500 focus:border-transparent"
@@ -132,44 +214,45 @@ const DataLoggerIrigasi = ({ data, isLive, loading }) => {
                 </tr>
               </thead>
               <tbody>
-                {currentData.map((row, index) => (
-                  <motion.tr
-                    key={startIndex + index}
-                    initial={{ opacity: 0 }}
-                    animate={{ opacity: 1 }}
-                    transition={{ duration: 0.3, delay: index * 0.05 }}
-                    className="border-b border-gray-100 hover:bg-gray-50"
-                  >
-                    {header.map(h => (
-                      <td
-                        key={h.key}
-                        className={`py-3 px-4 font-semibold ${
-                          getColor(h.key, row[h.key])
-                        }`}
-                      >
-                        {h.key === "timestamp"
-                          ? formatTanggal(row.timestamp)
-                          : h.key === "status"
-                            ? (
-                                <span className={`px-2 py-1 rounded-full text-xs font-medium ${
-                                  row.status === 'connected'
-                                    ? 'bg-green-100 text-green-700'
-                                    : 'bg-red-100 text-red-700'
-                                }`}>
-                                  {row.status === 'connected' ? 'Terkirim' : 'Terputus'}
-                                </span>
-                              )
-                            : row[h.key] !== undefined && row[h.key] !== null
-                              ? (["ph", "flowRate"].includes(h.key)
-                                  ? Number(row[h.key]).toFixed(2)
-                                  : typeof row[h.key] === "number"
-                                    ? Number(row[h.key]).toFixed(1)
-                                    : row[h.key])
-                              : '-'}
-                      </td>
-                    ))}
-                  </motion.tr>
-                ))}
+                {currentData.map((row, index) => {
+                  const waktu = parseSheetTimestamp(row.timestamp);
+                  return (
+                    <motion.tr
+                      key={startIndex + index}
+                      initial={{ opacity: 0 }}
+                      animate={{ opacity: 1 }}
+                      transition={{ duration: 0.3, delay: index * 0.05 }}
+                      className="border-b border-gray-100 hover:bg-gray-50"
+                    >
+                      {header.map(h => (
+                        <td
+                          key={h.key}
+                          className={`py-3 px-4 font-semibold ${getColor(h.key, row[h.key])}`}
+                        >
+                          {h.key === "timestamp"
+                            ? formatTanggalWIB(waktu) // tampil WIB sesuai sheet
+                            : h.key === "status"
+                              ? (
+                                  <span className={`px-2 py-1 rounded-full text-xs font-medium ${
+                                    row.status === 'connected'
+                                      ? 'bg-green-100 text-green-700'
+                                      : 'bg-red-100 text-red-700'
+                                  }`}>
+                                    {row.status === 'connected' ? 'Terkirim' : 'Terputus'}
+                                  </span>
+                                )
+                              : row[h.key] !== undefined && row[h.key] !== null
+                                ? (["ph", "flowRate"].includes(h.key)
+                                    ? Number(row[h.key]).toFixed(2)
+                                    : typeof row[h.key] === "number"
+                                      ? Number(row[h.key]).toFixed(1)
+                                      : row[h.key])
+                                : '-'}
+                        </td>
+                      ))}
+                    </motion.tr>
+                  );
+                })}
               </tbody>
             </table>
           </div>
@@ -178,7 +261,7 @@ const DataLoggerIrigasi = ({ data, isLive, loading }) => {
           {totalPages > 1 && (
             <div className="flex flex-col md:flex-row items-center justify-between mt-6 gap-4">
               <div className="text-sm text-gray-600">
-                Menampilkan {startIndex + 1}-{Math.min(endIndex, filteredData.length)} dari {filteredData.length} data hari ini
+                Menampilkan {startIndex + 1}-{Math.min(endIndex, filteredData.length)} dari {filteredData.length} data hari ini (WIB)
               </div>
               <div className="flex items-center space-x-2">
                 <Button
