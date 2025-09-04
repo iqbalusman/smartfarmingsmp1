@@ -6,29 +6,20 @@ import { Button } from "@/components/ui/button";
 import fetchSheetData from "@/lib/fetchSheetData";
 
 // TAMPILKAN DALAM WIB supaya sama dengan spreadsheet
-const DISPLAY_TZ = "Asia/Jakarta"; // WIB
-const DISPLAY_TZ_OFFSET_MINUTES = 7 * 60; // dipakai untuk perhitungan batas hari
+const DISPLAY_TZ = "Asia/Jakarta";
+const DISPLAY_TZ_OFFSET_MINUTES = 7 * 60;
 
-const pad2 = (n) => String(n).padStart(2, "0");
-
-// Gunakan Intl agar akurat & tidak double offset
 const fmtWIB = new Intl.DateTimeFormat("id-ID", {
   timeZone: DISPLAY_TZ,
-  year: "numeric",
-  month: "numeric",
-  day: "numeric",
-  hour: "2-digit",
-  minute: "2-digit",
-  second: "2-digit",
-  hour12: false,
+  year: "numeric", month: "numeric", day: "numeric",
+  hour: "2-digit", minute: "2-digit", second: "2-digit", hour12: false
 });
 
 function formatWIB(dateLike) {
   const d = dateLike instanceof Date ? dateLike : new Date(dateLike);
-  return isNaN(d) ? "-" : fmtWIB.format(d).replaceAll("/", "/").replace(", ", ", ");
+  return isNaN(d) ? "-" : fmtWIB.format(d);
 }
 
-// Hitung 00:00–24:00 “hari ini” di WIB
 function getDayBoundsWIB(baseDate = new Date()) {
   const offsetMs = DISPLAY_TZ_OFFSET_MINUTES * 60 * 1000;
   const shifted = new Date(baseDate.getTime() + offsetMs);
@@ -38,14 +29,11 @@ function getDayBoundsWIB(baseDate = new Date()) {
   return { start, end };
 }
 
-// Parser aman untuk ISO/epoch (fetcher sudah memberi ISO UTC “…Z”)
 function parseTimestamp(input) {
   if (input == null) return new Date(NaN);
   if (input instanceof Date) return input;
   if (typeof input === "number") return new Date(input > 1e12 ? input : input * 1000);
-  const s = String(input);
-  const d = new Date(s); // ISO UTC → akurat
-  return d;
+  return new Date(String(input)); // ISO UTC dari fetcher → akurat
 }
 
 const columns = [
@@ -83,11 +71,7 @@ export default function DataLoggerIrigasi() {
       setLoading(true);
       const rows = await fetchSheetData();
       if (!mounted) return;
-
-      const cleaned = rows.map((r) => ({
-        ...r,
-        status: r.timestamp ? "connected" : "disconnected",
-      }));
+      const cleaned = rows.map((r) => ({ ...r, status: r.timestamp ? "connected" : "disconnected" }));
       setData(cleaned);
       setLoading(false);
     })();
@@ -104,9 +88,7 @@ export default function DataLoggerIrigasi() {
 
     const withSearch = searchTerm
       ? rowsToday.filter((row) =>
-          formatWIB(parseTimestamp(row.timestamp))
-            .toLowerCase()
-            .includes(searchTerm.toLowerCase())
+          formatWIB(parseTimestamp(row.timestamp)).toLowerCase().includes(searchTerm.toLowerCase())
         )
       : rowsToday;
 
@@ -131,10 +113,7 @@ export default function DataLoggerIrigasi() {
   const todayLabelWIB = formatWIB(new Date()).split(",")[0];
 
   return (
-    <motion.div
-      initial={{ opacity: 0, y: 20 }}
-      animate={{ opacity: 1, y: 0 }}
-      transition={{ duration: 0.6 }}
+    <motion.div initial={{ opacity: 0, y: 20 }} animate={{ opacity: 1, y: 0 }} transition={{ duration: 0.6 }}
       className="glass-effect p-6 md:p-8 rounded-2xl shadow-xl overflow-x-auto"
     >
       {/* Header */}
@@ -145,12 +124,9 @@ export default function DataLoggerIrigasi() {
         <div>
           <h2 className="text-2xl font-bold text-gray-800">Data Logger Irigasi Tetes</h2>
           <p className="text-gray-600 text-sm md:text-base">
-            Riwayat sensor: <strong>Suhu &amp; Kelembaban (SHT20)</strong>,{" "}
-            <strong>pH &amp; Kelembaban Tanah</strong>, <strong>Flow Meter</strong>
+            Riwayat sensor: <strong>Suhu &amp; Kelembaban (SHT20)</strong>, <strong>pH &amp; Kelembaban Tanah</strong>, <strong>Flow Meter</strong>
           </p>
-          <p className="text-gray-500 text-xs">
-            Menampilkan data otomatis dari <strong>{todayLabelWIB}</strong> (WIB)
-          </p>
+          <p className="text-gray-500 text-xs">Menampilkan data otomatis dari <strong>{todayLabelWIB}</strong> (WIB)</p>
         </div>
       </div>
 
@@ -159,9 +135,7 @@ export default function DataLoggerIrigasi() {
         <div className="relative">
           <Search className="absolute left-3 top-1/2 transform -translate-y-1/2 h-4 w-4 text-gray-400" />
           <input
-            type="text"
-            placeholder="Cari berdasarkan waktu (format WIB)..."
-            value={searchTerm}
+            type="text" placeholder="Cari berdasarkan waktu (format WIB)..." value={searchTerm}
             onChange={(e) => { setSearchTerm(e.target.value); setPage(1); }}
             className="w-full pl-10 pr-4 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-indigo-500 focus:border-transparent"
           />
@@ -177,14 +151,7 @@ export default function DataLoggerIrigasi() {
                 <tr className="border-b border-gray-200 bg-gray-50">
                   {columns.map((c) => (
                     <th key={c.key} className="py-3 px-4">
-                      {c.key === "timestamp" ? (
-                        <>
-                          <Calendar className="inline h-4 w-4 mr-1" />
-                          Waktu
-                        </>
-                      ) : (
-                        c.label
-                      )}
+                      {c.key === "timestamp" ? (<><Calendar className="inline h-4 w-4 mr-1" />Waktu</>) : c.label}
                     </th>
                   ))}
                 </tr>
@@ -193,39 +160,23 @@ export default function DataLoggerIrigasi() {
                 {currentData.map((row, idx) => {
                   const waktu = parseTimestamp(row.timestamp);
                   return (
-                    <motion.tr
-                      key={startIndex + idx}
-                      initial={{ opacity: 0 }}
-                      animate={{ opacity: 1 }}
-                      transition={{ duration: 0.3, delay: idx * 0.05 }}
-                      className="border-b border-gray-100 hover:bg-gray-50"
+                    <motion.tr key={startIndex + idx} initial={{ opacity: 0 }} animate={{ opacity: 1 }}
+                      transition={{ duration: 0.3, delay: idx * 0.05 }} className="border-b border-gray-100 hover:bg-gray-50"
                     >
                       {columns.map((c) => {
                         const val = row[c.key];
                         return (
-                          <td
-                            key={c.key}
-                            className={`py-3 px-4 font-semibold ${getColor(c.key, val)}`}
-                          >
+                          <td key={c.key} className={`py-3 px-4 font-semibold ${getColor(c.key, val)}`}>
                             {c.key === "timestamp"
-                              ? formatWIB(waktu) // tampil WIB → sama dengan sheet
+                              ? formatWIB(waktu)
                               : c.key === "status"
-                              ? (
-                                  <span className={`px-2 py-1 rounded-full text-xs font-medium ${
-                                    row.status === "connected"
-                                      ? "bg-green-100 text-green-700"
-                                      : "bg-red-100 text-red-700"
-                                  }`}>
-                                    {row.status === "connected" ? "Terkirim" : "Terputus"}
-                                  </span>
-                                )
-                              : val == null || val === ""
-                              ? "-"
-                              : ["ph", "flowRate"].includes(c.key)
-                              ? Number(val).toFixed(2)
-                              : typeof val === "number"
-                              ? Number(val).toFixed(1)
-                              : String(val)}
+                                ? (<span className={`px-2 py-1 rounded-full text-xs font-medium ${
+                                    row.status === "connected" ? "bg-green-100 text-green-700" : "bg-red-100 text-red-700"
+                                  }`}>{row.status === "connected" ? "Terkirim" : "Terputus"}</span>)
+                                : val == null || val === "" ? "-"
+                                : ["ph", "flowRate"].includes(c.key) ? Number(val).toFixed(2)
+                                : typeof val === "number" ? Number(val).toFixed(1)
+                                : String(val)}
                           </td>
                         );
                       })}
@@ -237,7 +188,7 @@ export default function DataLoggerIrigasi() {
           </div>
 
           {/* Pagination */}
-          {Math.max(1, Math.ceil(filteredSorted.length / itemsPerPage)) > 1 && (
+          {totalPages > 1 && (
             <div className="flex flex-col md:flex-row items-center justify-between mt-6 gap-4">
               <div className="text-sm text-gray-600">
                 Menampilkan {startIndex + 1}-{Math.min(startIndex + itemsPerPage, filteredSorted.length)} dari {filteredSorted.length} data hari ini (WIB)
@@ -246,10 +197,8 @@ export default function DataLoggerIrigasi() {
                 <Button variant="outline" size="sm" onClick={() => setPage((p) => Math.max(p - 1, 1))} disabled={page === 1}>
                   <ChevronLeft className="h-4 w-4" />
                 </Button>
-                <span className="text-sm font-medium text-gray-700">
-                  Hal {page} dari {Math.max(1, Math.ceil(filteredSorted.length / itemsPerPage))}
-                </span>
-                <Button variant="outline" size="sm" onClick={() => setPage((p) => Math.min(p + 1, Math.max(1, Math.ceil(filteredSorted.length / itemsPerPage))))} disabled={page === Math.max(1, Math.ceil(filteredSorted.length / itemsPerPage))}>
+                <span className="text-sm font-medium text-gray-700">Hal {page} dari {totalPages}</span>
+                <Button variant="outline" size="sm" onClick={() => setPage((p) => Math.min(p + 1, totalPages))} disabled={page === totalPages}>
                   <ChevronRight className="h-4 w-4" />
                 </Button>
               </div>
@@ -259,9 +208,7 @@ export default function DataLoggerIrigasi() {
       ) : (
         <div className="text-center py-12">
           <Database className="h-16 w-16 text-gray-400 mx-auto mb-4" />
-          <p className="text-gray-500 text-lg">
-            {data.length === 0 ? "Belum ada data hari ini" : "Tidak ada data yang sesuai filter"}
-          </p>
+          <p className="text-gray-500 text-lg">{data.length === 0 ? "Belum ada data hari ini" : "Tidak ada data yang sesuai filter"}</p>
           <p className="text-gray-400 text-sm">Pastikan perangkat Anda mengirim data.</p>
         </div>
       )}
